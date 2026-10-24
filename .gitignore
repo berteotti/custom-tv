@@ -13,7 +13,9 @@ profiles.xml
 bin/
 obj/
 tools/home-routing/out/
+tools/home-routing/out31/
 tools/notification-settings/out/
+tools/notification-settings/out31/
 tools/vendor/samsung-tv-root/samsung_tv_root/payloads/
 __pycache__/
 *.pyc

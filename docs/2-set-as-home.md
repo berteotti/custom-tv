@@ -24,6 +24,7 @@ Commands time out after 45 seconds, and each output stream is capped at 1 MiB. D
 - [Level 1](1-install.md) done, with TV Home installed.
 - Python 3.12. Other recent versions are probably fine but haven't been tested.
 - A .NET SDK that can build `net6.0` projects ([download](https://dotnet.microsoft.com/download)).
+- **Firewall:** the root session works by having the TV connect back to your computer on an ephemeral port. If you run a host firewall (UFW, firewalld, iptables), allow inbound TCP from the TV's IP before step 2. On UFW: `sudo ufw allow from <TV_IP>` (and `sudo ufw delete allow from <TV_IP>` when you're done).
 
 ## Step 1: build the helpers
 
@@ -56,6 +57,13 @@ tools/tv-root.py --command "$(cat extras/backup-tv-state.sh)"
 ```
 
 The first command takes consistent SQLite snapshots of the package, app-service, notification and app-context databases. It saves them with the systemd override folders in one archive. The second command copies that archive to your computer. Compare its SHA-256 with the one printed by the first command, and keep it private.
+
+> **Tizen 6.5 note:** `sdb pull` from this path may fail with "You cannot pull files from this path". If so, pull the archive through the root session instead:
+>
+> ```bash
+> tools/tv-root.py --command 'base64 /home/owner/share/tmp/sdk_tools/tv-home-backup.tgz' \
+>   | python3 -c "import base64,json,sys; r=json.load(sys.stdin); d=base64.b64decode(r['commands'][0]['stdout']); open('tv-home-backup.tgz','wb').write(d); print(len(d),'bytes')"
+> ```
 
 The archive is for diagnosis and careful recovery. **Never copy the snapshots over the live databases.** Use the rollback commands below instead.
 
@@ -93,6 +101,14 @@ Always do this **before** uninstalling TV Home.
 4. sets the new target and reads it back
 5. sets the old target back if the read-back doesn't match
 
+## Tested TVs
+
+| Model | Year | Tizen | .NET runtime | Result |
+| --- | --- | --- | --- | --- |
+| QN55S95BAFXZA (S95B) | 2022 | 6.5 | 3.1.3 | Root, home routing and backup all work |
+
+Older Tizen versions (6.5 and earlier) ship with .NET 3.1 instead of 6.0. `build-helpers.sh` builds for both runtimes, and the helper scripts detect which one the TV has.
+
 ## Known gaps
 
-Persistence after a cold reboot was **not** verified on the test TV. If Home reverts after unplugging the TV, run step 5 again.
+Persistence after a cold reboot was **not** verified on either test TV. If Home reverts after unplugging the TV, run step 5 again.

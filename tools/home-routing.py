@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import shlex
 import sys
 import uuid
@@ -15,6 +16,35 @@ from samsung_tv_root.archive_root import probe
 from samsung_tv_root.sdb import SdbClient, find_sdb
 
 APPS = {"stock": "com.samsung.tv.csfs", "custom": "TvHomeLnch.Home"}
+HELPER_FILES = ("HomeRouting.dll", "HomeRouting.deps.json", "HomeRouting.runtimeconfig.json")
+
+
+def _detect_runtime(client):
+    """Return 'out31' for .NET 3.1 TVs or 'out' for .NET 6+."""
+    result = client.capture(
+        "/usr/bin/dotnet --list-runtimes 2>&1"
+        " || readlink -f /usr/share/dotnet.tizen/netcoreapp",
+        timeout=15,
+    )
+    output = result.output.split("\n[exit:")[0]
+    for line in output.splitlines():
+        if re.match(r"Microsoft\.NETCore\.App [6-9]\.", line):
+            return "out"
+    return "out31"
+
+
+def _resolve_helper(parser, client):
+    """Find the compiled helper directory for this TV's runtime."""
+    suffix = _detect_runtime(client)
+    directory = TOOLS / "home-routing" / suffix
+    files = [directory / name for name in HELPER_FILES]
+    if all(path.is_file() for path in files):
+        return files
+    fallback = TOOLS / "home-routing/out"
+    files = [fallback / name for name in HELPER_FILES]
+    if all(path.is_file() for path in files):
+        return files
+    parser.error("Compiled helper missing; run tools/build-helpers.sh first.")
 
 
 def main():
@@ -24,15 +54,11 @@ def main():
     args = parser.parse_args()
     if not args.tv:
         parser.error("pass --tv <ip> or set TV_IP")
-    files = [TOOLS / "home-routing/out" / name for name in (
-        "HomeRouting.dll", "HomeRouting.deps.json", "HomeRouting.runtimeconfig.json"
-    )]
-    if any(not path.is_file() for path in files):
-        parser.error("Compiled helper missing; run tools/build-helpers.sh first.")
-    remote = PurePosixPath("/home/owner/share/tmp/sdk_tools") / ("tvhome-routing-" + uuid.uuid4().hex)
     client = SdbClient(find_sdb(), args.tv)
     client.connect()
     client.require_device()
+    files = _resolve_helper(parser, client)
+    remote = PurePosixPath("/home/owner/share/tmp/sdk_tools") / ("tvhome-routing-" + uuid.uuid4().hex)
     created = client.capture("mkdir -m 777 " + str(remote), timeout=20)
     if "[exit:0]" not in created.output:
         raise RuntimeError("Could not create temporary helper directory: " + created.output)
